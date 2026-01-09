@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>The Maze: Mobile Edition</title>
+    <style>
+        body { background-color: #e8eaed; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 10px; overflow-x: hidden; touch-action: manipulation; }
+        
+        .stats-bar { display: flex; gap: 10px; margin-bottom: 10px; font-weight: bold; background: white; padding: 10px 20px; border-radius: 50px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); font-size: 14px; }
+        .coin-text { color: #fbc02d; }
+        .gem-text { color: #9c27b0; }
+
+        #game-view { border: 5px solid #1a73e8; background: #000; border-radius: 8px; position: relative; width: 320px; height: 320px; }
+        canvas { display: block; width: 100%; height: 100%; }
+
+        /* Mobile D-Pad Controls */
+        .mobile-controls { margin-top: 15px; display: grid; grid-template-areas: ". up ." "left . right" ". down ."; gap: 10px; }
+        .control-btn { width: 60px; height: 60px; background: #fff; border: 2px solid #1a73e8; border-radius: 50%; font-size: 24px; font-weight: bold; color: #1a73e8; display: flex; align-items: center; justify-content: center; cursor: pointer; -webkit-tap-highlight-color: transparent; box-shadow: 0 4px 0 #1a73e8; }
+        .control-btn:active { transform: translateY(4px); box-shadow: none; background: #e8f0fe; }
+
+        .up { grid-area: up; } .down { grid-area: down; } .left { grid-area: left; } .right { grid-area: right; }
+
+        .controls-ui { margin-top: 20px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+        .btn { padding: 10px 15px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px; }
+        .btn-save { background: #34a853; color: white; }
+        .btn-shop { background: #9c27b0; color: white; }
+        .btn-owner { background: #fbbc05; color: #202124; }
+
+        /* Modals */
+        #shop-modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 12px; box-shadow: 0 0 50px rgba(0,0,0,0.3); z-index: 2000; width: 280px; max-height: 70vh; overflow-y: auto; }
+        .shop-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee; font-size: 13px; }
+        .buy-btn { background: #34a853; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+
+        #owner-panel { display: none; margin-top: 20px; padding: 15px; background: #202124; color: white; border-radius: 10px; width: 300px; text-align: center; border: 2px solid #fbbc05; }
+        .admin-controls input { width: 60px; padding: 5px; margin: 3px; border-radius: 4px; }
+        
+        #victory-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; flex-direction: column; align-items: center; justify-content: center; z-index: 3000; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <div class="stats-bar">
+        <div>🚩 Lvl <span id="lvl-val">1</span></div>
+        <div class="coin-text">💰 <span id="coin-val">0</span></div>
+        <div class="gem-text">💎 <span id="gem-val">0</span></div>
+    </div>
+
+    <div id="game-view">
+        <canvas id="mazeCanvas" width="500" height="500"></canvas>
+    </div>
+
+    <div class="mobile-controls">
+        <div class="control-btn up" onclick="move(0, -1)">▲</div>
+        <div class="control-btn left" onclick="move(-1, 0)">◀</div>
+        <div class="control-btn right" onclick="move(1, 0)">▶</div>
+        <div class="control-btn down" onclick="move(0, 1)">▼</div>
+    </div>
+
+    <div class="controls-ui">
+        <button class="btn btn-save" onclick="saveGame()">💾 Save</button>
+        <button class="btn btn-shop" onclick="toggleShop(true)">🛒 Shop</button>
+        <button class="btn btn-owner" onclick="checkOwnerKey()">🔑 Owners</button>
+    </div>
+
+    <div id="shop-modal">
+        <h3 style="text-align:center; color:#9c27b0; margin-top:0;">Shop</h3>
+        <div id="shop-list"></div>
+        <button class="btn" style="width:100%; margin-top:10px; background:#444; color:white;" onclick="toggleShop(false)">Exit Shop</button>
+    </div>
+
+    <div id="owner-panel">
+        <div class="admin-controls">
+            <input type="number" id="set-coins-input" placeholder="Coins">
+            <button onclick="setCurrency('coins')" class="buy-btn">Set</button>
+            <input type="number" id="set-gems-input" placeholder="Gems">
+            <button onclick="setCurrency('gems')" class="buy-btn">Set</button>
+            <br>
+            <button onclick="toggleNoClip()" id="nc-btn" class="buy-btn" style="background:#ea4335">NoClip: OFF</button>
+            <button onclick="autoWin()" class="buy-btn" style="background:#4285f4">Auto-Win</button>
+        </div>
+    </div>
+
+    <div id="victory-overlay">
+        <h1>🏆 YOU DID IT 🏆</h1>
+        <p>You beat level 501,000!</p>
+        <h2 style="font-size: 40px; color: #ea4335;">KEY: 2004</h2>
+        <button class="btn btn-save" onclick="location.reload()">Reset</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('mazeCanvas');
+        const ctx = canvas.getContext('2d');
+        let level = 1, coins = 0, gems = 0, noClip = false, playerColor = "#1a73e8";
+        const grid = 17, size = canvas.width / grid;
+        let maze = [], player = { x: 1, y: 1 };
+
+        const shopItems = [
+            { id: 1, name: "Green Skin", cost: 100, currency: "coins", color: "#4caf50" },
+            { id: 2, name: "Red Skin", cost: 250, currency: "coins", color: "#f44336" },
+            { id: 3, name: "Purple Skin", cost: 500, currency: "coins", color: "#9c27b0" },
+            { id: 4, name: "Golden Skin", cost: 10, currency: "gems", color: "#ffc107" }
+        ];
+
+        function initMaze() {
+            maze = Array(grid).fill().map(() => Array(grid).fill(1));
+            function carve(x, y) {
+                maze[y][x] = 0;
+                const dirs = [[0, -2], [0, 2], [-2, 0], [2, 0]].sort(() => Math.random() - 0.5);
+                for (let [dx, dy] of dirs) {
+                    let nx = x + dx, ny = y + dy;
+                    if (nx > 0 && nx < grid - 1 && ny > 0 && ny < grid - 1 && maze[ny][nx] === 1) {
+                        maze[y + dy / 2][x + dx / 2] = 0; carve(nx, ny);
+                    }
+                }
+            }
+            carve(1, 1); maze[grid - 2][grid - 2] = 3;
+        }
+
+        function render() {
+            ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            for (let y = 0; y < grid; y++) {
+                for (let x = 0; x < grid; x++) {
+                    if (maze[y][x] === 0) { ctx.fillStyle = "#fff"; ctx.fillRect(x * size, y * size, size, size); }
+                    else if (maze[y][x] === 3) { ctx.fillStyle = "#ff4444"; ctx.fillRect(x * size, y * size, size, size); }
+                }
+            }
+            ctx.fillStyle = playerColor; ctx.shadowBlur = 15; ctx.shadowColor = playerColor;
+            ctx.beginPath(); ctx.arc(player.x * size + size/2, player.y * size + size/2, size/3, 0, Math.PI*2);
+            ctx.fill(); ctx.shadowBlur = 0;
+        }
+
+        function move(dx, dy) {
+            let nx = player.x + dx, ny = player.y + dy;
+            if (nx >= 0 && nx < grid && ny >= 0 && ny < grid) {
+                if (noClip || maze[ny][nx] !== 1) {
+                    player.x = nx; player.y = ny;
+                    if (maze[ny][nx] === 3) handleWin();
+                }
+            }
+            render();
+        }
+
+        function handleWin() {
+            coins += 25; if (level % 5 === 0) gems += 1;
+            if (level >= 501000) { document.getElementById('victory-overlay').style.display = 'flex'; return; }
+            level++; updateUI(); player = { x: 1, y: 1 }; initMaze(); render();
+        }
+
+        function updateUI() {
+            document.getElementById('lvl-val').innerText = level.toLocaleString();
+            document.getElementById('coin-val').innerText = coins.toLocaleString();
+            document.getElementById('gem-val').innerText = gems.toLocaleString();
+        }
+
+        function toggleShop(show) {
+            const modal = document.getElementById('shop-modal');
+            modal.style.display = show ? 'block' : 'none';
+            if(show) {
+                const list = document.getElementById('shop-list');
+                list.innerHTML = shopItems.map(item => `
+                    <div class="shop-item">
+                        <span>${item.name}</span>
+                        <button class="buy-btn" onclick="buyItem(${item.id})">${item.cost}${item.currency === 'coins' ? '💰' : '💎'}</button>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function buyItem(id) {
+            const item = shopItems.find(i => i.id === id);
+            if (item.currency === "coins" && coins >= item.cost) {
+                coins -= item.cost; playerColor = item.color; alert("Equipped!");
+            } else if (item.currency === "gems" && gems >= item.cost) {
+                gems -= item.cost; playerColor = item.color; alert("Equipped!");
+            } else { alert("Not enough currency!"); }
+            updateUI(); render();
+        }
+
+        function setCurrency(type) {
+            if (type === 'coins') coins = parseInt(document.getElementById('set-coins-input').value) || 0;
+            if (type === 'gems') gems = parseInt(document.getElementById('set-gems-input').value) || 0;
+            updateUI();
+        }
+
+        function checkOwnerKey() {
+            if (prompt("Enter Owners Key:") === "2004") document.getElementById('owner-panel').style.display = 'block';
+        }
+
+        function toggleNoClip() { noClip = !noClip; document.getElementById('nc-btn').innerText = "NoClip: " + (noClip ? "ON" : "OFF"); }
+        function autoWin() { player.x = grid - 2; player.y = grid - 2; render(); setTimeout(() => move(0, 0), 100); }
+        function saveGame() { localStorage.setItem('maze_save_m', JSON.stringify({l: level, c: coins, g: gems, clr: playerColor})); alert("Saved!"); }
+
+        window.onload = () => {
+            let saved = localStorage.getItem('maze_save_m');
+            if (saved) { let data = JSON.parse(saved); level = data.l; coins = data.c; gems = data.g; playerColor = data.clr || "#1a73e8"; updateUI(); }
+            initMaze(); render();
+        };
+
+        window.addEventListener('keydown', (e) => {
+            const k = e.key.toLowerCase();
+            if (k === 'w' || k === 'arrowup') move(0, -1);
+            if (k === 's' || k === 'arrowdown') move(0, 1);
+            if (k === 'a' || k === 'arrowleft') move(-1, 0);
+            if (k === 'd' || k === 'arrowright') move(1, 0);
+        });
+    </script>
+</body>
+</html>
